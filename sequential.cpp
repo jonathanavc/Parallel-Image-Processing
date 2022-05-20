@@ -1,3 +1,4 @@
+//g++ sequential.cpp -std=c++11
 #include <iostream>
 #include <sstream>
 #include <fstream>
