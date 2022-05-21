@@ -1,4 +1,4 @@
-//g++ -std=c++11 -O3 -march=native -Dcimg_jpeg=1 -Dcimg_display=0  jpeg_to_ppm.cpp
+//g++ parallel_cimg.cu -std=c++11 -O3 -Dcimg_jpeg=1 -Dcimg_display=0
 #include <iostream>
 #include "CImg.h"
 
@@ -19,8 +19,14 @@ int main(int argc, char const *argv[]){
 
     CImg<unsigned char> img_out(width, height, 1, 3, 255);
     unsigned char *out = img_out.data();
-    for (int i = 0; i < img_out.size(); i++){
-        out[i] = in[i] * 0.5;
+    int img_size = img_out.size()/3;
+    for (int i = 0; i < img_size; i++){
+        //R
+        out[i] = min(in[i]+50,255);
+        //G           
+        out[i + img_size] = in[i + img_size];
+        //B          
+        out[i + img_size*2] = in[i + img_size*2];
     }
     img_out.save("new_img.jpg");
     return 0;

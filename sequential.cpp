@@ -5,7 +5,6 @@
 
 using namespace std;
 
-static string metodo = "upscaling_";
 
 int main(int argc, char const *argv[]){
     srand(time(NULL));
@@ -16,7 +15,7 @@ int main(int argc, char const *argv[]){
         return 1;
     }
     in_image.open(argv[1]);
-    out_image.open(metodo + (string)argv[1]);
+    out_image.open("new_img.ppm");
     string s;
     in_image >> s;                  //type
     out_image << s << endl;
@@ -40,18 +39,9 @@ int main(int argc, char const *argv[]){
         g = stoi(green);
         b = stoi(blue);
 
-        if(rand()%2 == 1){
-            r = ((r+g+b)/3);
-            out_image << r << "\n";
-            out_image << r << "\n";
-            out_image << r << "\n";
-
-        }
-        else{
-            out_image << r << "\n";
-            out_image << g << "\n";
-            out_image << b << "\n";
-        }
+        out_image << min(r + 50,255) << "\n";
+        out_image << g << "\n";
+        out_image << b << "\n";
     }
     return 0;
 }
