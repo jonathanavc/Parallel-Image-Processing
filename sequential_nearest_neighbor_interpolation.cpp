@@ -1,4 +1,4 @@
-//nvcc parallel_cimg.cu -std=c++11 -O3 -Dcimg_jpeg=1 -Dcimg_display=0
+//g++ sequential_nearest_neighbor_interpolation.cpp -std=c++11 -O3 -Dcimg_jpeg=1 -Dcimg_display=0
 #include <iostream>
 #include "CImg.h"
 
@@ -40,4 +40,3 @@ int main(int argc, char const *argv[]){
     img_out.save("new_img.jpg");
     return 0;
 }
-
