@@ -27,6 +27,8 @@ int main(int argc, char const *argv[]){
     int new_width = img_out.width();
     int new_height = img_out.height();
 
+    scale = (float)new_width / old_width;
+
     for (int y = 0; y < new_height; y++){
         for (int x = 0; x < new_width; x++){
             //R
