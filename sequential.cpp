@@ -11,7 +11,7 @@ int main(int argc, char const *argv[]){
     srand(time(NULL));
     ifstream in_image;
     ofstream out_image;
-    if(argc < 2){
+    if(argc != 2){
         cout << "Modo de uso: "<< argv[0] << " \"Nombre_imagen\""<<endl;
         return 1;
     }
