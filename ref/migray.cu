@@ -72,11 +72,5 @@ int main(int argc, char *argv[])
 
     cudaFree(d_src);
     cudaFree(d_dst);
-    
-    CImg<unsigned char> src_gray(imgout);
-    CImgDisplay main_disp(src_gray, "despues de procesar");
-    while (!main_disp.is_closed())
-        main_disp.wait();
-
     return 0;
 }
