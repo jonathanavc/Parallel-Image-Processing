@@ -1,5 +1,7 @@
-// nvcc parallel_cimg.cu -std=c++11 -O3 -Dcimg_jpeg=1 -Dcimg_display=0
+// nvcc parallel_nearest_neighbor_interpolation.cu -std=c++11 -O3 -Dcimg_jpeg=1 -Dcimg_display=0
+// nvcc parallel_nearest_neighbor_interpolation.cu -lX11
 #include <iostream>
+#include <cuda_runtime.h>
 #include "CImg.h"
 
 using namespace cimg_library;
@@ -8,7 +10,9 @@ using namespace std;
 __global__ void nearest_neighbor_interpolation(unsigned char *d_old_image, unsigned char *d_new_image, int old_width, int old_height, int new_width, int new_height){
     int old_size = old_height * old_width;
     int new_size = new_height * new_width;
+
     float scale = (float)new_width / old_width;
+    
     int pos_x = blockIdx.x * blockDim.x + threadIdx.x;
     int pos_y = blockIdx.y * blockDim.y + threadIdx.y;
 

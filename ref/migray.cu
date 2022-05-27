@@ -13,7 +13,6 @@ __global__ void rgb2gray(unsigned char * d_src, unsigned char * d_dst, int width
 
     if (pos_x >= width || pos_y >= height)
         return;
-
     /*
      * CImg canales RGB estan divididos no entrelazados.
      * esto es RRRR.... GGGG.... BBBB... y no RBGRGBRGB....

@@ -1,4 +1,5 @@
 //g++ sequential_nearest_neighbor_interpolation.cpp -std=c++11 -O3 -Dcimg_jpeg=1 -Dcimg_display=0
+//g++ sequential_nearest_neighbor_interpolation.cpp -lX11
 #include <iostream>
 #include "CImg.h"
 
