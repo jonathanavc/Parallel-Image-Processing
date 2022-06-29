@@ -13,12 +13,10 @@ __device__ int pixel(unsigned char *img, int x, int y, int width, int size, int 
     return img[(x) + (y)*width + size * rgb];
 }
 
-__global__ void nearest_neighbor_interpolation(unsigned char *d_old_image, unsigned char *d_new_image, int old_width, int old_height, int new_width, int new_height)
+__global__ void nearest_neighbor_interpolation(unsigned char *d_old_image, unsigned char *d_new_image, int old_width, int old_height, int new_width, int new_height,int scale)
 {
     int old_size = old_height * old_width;
     int new_size = new_height * new_width;
-
-    int scale = (new_width / old_width) + 1;
 
     int pos_x = blockIdx.x * blockDim.x + threadIdx.x;
     int pos_y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -84,7 +82,7 @@ int main(int argc, char const *argv[])
 
     dim3 blkDim(16, 16, 1);
     dim3 grdDim((new_width + 15) / 16, (new_height + 15) / 16, 3);
-    nearest_neighbor_interpolation<<<grdDim, blkDim>>>(d_old_image, d_new_image, old_width, old_height, new_width, new_height);
+    nearest_neighbor_interpolation<<<grdDim, blkDim>>>(d_old_image, d_new_image, old_width, old_height, new_width, new_height, scale);
 
     cudaDeviceSynchronize();
 
