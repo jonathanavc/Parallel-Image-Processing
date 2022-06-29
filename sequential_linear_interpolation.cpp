@@ -6,8 +6,8 @@
 using namespace cimg_library;
 using namespace std;
 
-int pixel(unsigned char *img,int x, int y, int rgb){
-
+int pixel(unsigned char *img, int x, int y, int width, int size, int rgb){
+    return img[(x) + (y) * width + size * rgb];
 }
 
 int scale;
@@ -38,26 +38,34 @@ int main(int argc, char const *argv[]){
 
     for (int y = 0; y < new_height; y++){
         for (int x = 0; x < new_width; x++){
-            if(x%scale == 0 && y%scale == 0){       // se mantiene el color
-                out[x + y*new_width] = in[(x/scale) + (y/scale) * old_width];
-                out[x + y*new_width + new_size] = in[(int)(x/scale) + (int)(y/scale) * old_width + old_size];
-                out[x + y*new_width + new_size*2] = in[(int)(x/scale) + (int)(y/scale) * old_width + old_size*2];
+            if(x%scale == 0 && y%scale == 0){       // se mantiene el color ✅
+                out[x + y*new_width] = pixel(in, x/scale, y/scale,old_width,old_size, 0);
+                out[x + y*new_width + new_size] = pixel(in, x/scale, y/scale,old_width,old_size, 1);
+                out[x + y*new_width + new_size*2] = pixel(in, x/scale, y/scale,old_width,old_size, 2);
             }
-            else if(x%scale == 0){                  // se interpola en el eje y
-                out[x + y*new_width] = in[(int)(x/scale) + (int)(y/scale) * old_width] + (x%scale)*(in[(int)(x/scale) + ((int)(y/scale) + 1) * old_width] - in[(int)(x/scale) + (int)(y/scale) * old_width])/(scale);
-                out[x + y*new_width + new_size] = in[(int)(x/scale) + (int)(y/scale) * old_width + old_size] + (x%scale)*(in[(int)(x/scale)  + ((int)(y/scale) + 1) * old_width + old_size] - in[(int)(x/scale) + (int)(y/scale) * old_width + old_size])/(scale);
-                out[x + y*new_width + new_size*2] = in[(int)(x/scale) + (int)(y/scale) * old_width + old_size*2] + (x%scale)*(in[(int)(x/scale) + ((int)(y/scale) + 1) * old_width + old_size*2] - in[(int)(x/scale) + (int)(y/scale) * old_width + old_size*2])/(scale);
+            else if(x%scale == 0){                  // se interpola en el eje y ✅
+                out[x + y*new_width] = pixel(in, x/scale, y/scale,old_width,old_size, 0) + (y%scale)*((pixel(in, x/scale, y/scale + 1, old_width, old_size, 0) - pixel(in, x/scale, y/scale, old_width,old_size, 0))/(scale));
+                out[x + y*new_width + new_size] = pixel(in, x/scale, y/scale,old_width,old_size, 1) + (y%scale)*((pixel(in, x/scale, y/scale + 1, old_width, old_size, 1) - pixel(in, x/scale, y/scale, old_width,old_size, 1))/(scale));
+                out[x + y*new_width + new_size*2] = pixel(in, x/scale, y/scale,old_width,old_size, 2) + (y%scale)*((pixel(in, x/scale, y/scale + 1, old_width, old_size, 2) - pixel(in, x/scale, y/scale, old_width,old_size, 2))/(scale));
             }
-            else if(y%scale == 0){                  // se interpola en el eje x
-                out[x + y*new_width] = in[(int)(x/scale) + (int)(y/scale) * old_width] + (y%scale)*(in[(int)(y/scale) + 1 + (int)(y/scale) * old_width] - in[(int)(x/scale) + (int)(y/scale) * old_width])/(scale);
-                out[x + y*new_width + new_size] = in[(int)(x/scale) + (int)(y/scale) * old_width + old_size] + (y%scale)*(in[(int)(x/scale) + 1 + (int)(y/scale) * old_width + old_size] - in[(int)(x/scale) + (int)(y/scale) * old_width + old_size])/(scale);
-                out[x + y*new_width + new_size*2] = in[(int)(x/scale) + (int)(y/scale) * old_width + old_size*2] + (y%scale)*(in[(int)(x/scale) + 1 + (int)(y/scale) * old_width + old_size*2] - in[(int)(x/scale) + (int)(y/scale) * old_width + old_size*2])/(scale);
-                
+            else if(y%scale == 0){                  // se interpola en el eje x ✅
+                out[x + y*new_width] = pixel(in, x/scale, y/scale,old_width,old_size, 0) + (x%scale)*((pixel(in, x/scale + 1, y/scale, old_width, old_size, 0) - pixel(in, x/scale, y/scale, old_width,old_size, 0))/(scale));
+                out[x + y*new_width + new_size] = pixel(in, x/scale, y/scale,old_width,old_size, 1) + (x%scale)*((pixel(in, x/scale + 1, y/scale, old_width, old_size, 1) - pixel(in, x/scale, y/scale, old_width,old_size, 1))/(scale));
+                out[x + y*new_width + new_size*2] = pixel(in, x/scale, y/scale,old_width,old_size, 2) + (x%scale)*((pixel(in, x/scale + 1, y/scale, old_width, old_size, 2) - pixel(in, x/scale, y/scale, old_width,old_size, 2))/(scale));
             }
-            else{                                   // si
-                //out[x + y*new_width] = (in[(int)(x/scale) + (int)(y/scale) * old_width] + (x%scale)*(in[(int)(x/scale) + ((int)(y/scale) + 1) * old_width] - in[(int)(x/scale) + (int)(y/scale) * old_width])/(scale-1) + in[(int)(x/scale) + (int)(y/scale) * old_width] + (y%scale)*(in[(int)(x/scale) + 1 + (int)(y/scale) * old_width] - in[(int)(x/scale) + (int)(y/scale) * old_width])/(scale-1))/2;
-                //out[x + y*new_width + new_size] = (in[(int)(x/scale) + (int)(y/scale) * old_width + old_size] + (x%scale)*(in[(int)(x/scale)  + ((int)(y/scale) + 1) * old_width + old_size] - in[(int)(x/scale) + (int)(y/scale) * old_width + old_size])/(scale-1) + in[(int)(x/scale) + (int)(y/scale) * old_width + old_size] + (y%scale)*(in[(int)(x/scale) + 1 + (int)(y/scale) * old_width + old_size] - in[(int)(x/scale) + (int)(y/scale) * old_width + old_size])/(scale-1))/2;
-                //out[x + y*new_width + new_size*2] = (in[(int)(x/scale) + (int)(y/scale) * old_width + old_size*2] + (x%scale)*(in[(int)(x/scale) + ((int)(y/scale) + 1) * old_width + old_size*2] - in[(int)(x/scale) + (int)(y/scale) * old_width + old_size*2])/(scale-1) + in[(int)(x/scale) + (int)(y/scale) * old_width + old_size*2] + (y%scale)*(in[(int)(x/scale) + 1 + (int)(y/scale) * old_width + old_size*2] - in[(int)(x/scale) + (int)(y/scale) * old_width + old_size*2])/(scale-1))/2;
+            else{                                   // ahora si (creo)✅✅✅✅✅🚬🐛
+                // obtener (x,y)
+                int x_y_r = pixel(in, x/scale, y/scale,old_width,old_size, 0) + (x%scale)*((pixel(in, x/scale + 1, y/scale, old_width, old_size, 0) - pixel(in, x/scale, y/scale, old_width,old_size, 0))/(scale));
+                int x_y_g = pixel(in, x/scale, y/scale,old_width,old_size, 1) + (x%scale)*((pixel(in, x/scale + 1, y/scale, old_width, old_size, 1) - pixel(in, x/scale, y/scale, old_width,old_size, 1))/(scale));
+                int x_y_b = pixel(in, x/scale, y/scale,old_width,old_size, 2) + (x%scale)*((pixel(in, x/scale + 1, y/scale, old_width, old_size, 2) - pixel(in, x/scale, y/scale, old_width,old_size, 2))/(scale));
+                // obtener (x,y+1)
+                int x_y_1_r = pixel(in, x/scale, y/scale + 1,old_width,old_size, 0) + (x%scale)*((pixel(in, x/scale + 1, y/scale + 1 , old_width, old_size, 0) - pixel(in, x/scale, y/scale + 1, old_width,old_size, 0))/(scale));
+                int x_y_1_g = pixel(in, x/scale, y/scale + 1,old_width,old_size, 1) + (x%scale)*((pixel(in, x/scale + 1, y/scale + 1 , old_width, old_size, 1) - pixel(in, x/scale, y/scale + 1, old_width,old_size, 1))/(scale));
+                int x_y_1_b = pixel(in, x/scale, y/scale + 1,old_width,old_size, 2) + (x%scale)*((pixel(in, x/scale + 1, y/scale + 1 , old_width, old_size, 2) - pixel(in, x/scale, y/scale + 1, old_width,old_size, 2))/(scale));
+                //interpolar
+                out[x + y*new_width] = x_y_r + (y%scale)*((x_y_1_r - x_y_r)/scale);
+                out[x + y*new_width + new_size] = x_y_g + (y%scale)*((x_y_1_g - x_y_g)/scale);
+                out[x + y*new_width + new_size*2] = x_y_b + (y%scale)*((x_y_1_b - x_y_b)/scale);
             }
         }
     }
