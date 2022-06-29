@@ -13,7 +13,7 @@ __device__ int pixel(unsigned char *img, int x, int y, int width, int size, int 
     return img[(x) + (y)*width + size * rgb];
 }
 
-__global__ void nearest_neighbor_interpolation(unsigned char *d_old_image, unsigned char *d_new_image, int old_width, int old_height, int new_width, int new_height,int scale)
+__global__ void nearest_neighbor_interpolation(unsigned char *d_old_image, unsigned char *d_new_image, int old_width, int old_height, int new_width, int new_height, int scale)
 {
     int old_size = old_height * old_width;
     int new_size = new_height * new_width;
