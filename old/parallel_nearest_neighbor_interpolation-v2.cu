@@ -3,9 +3,12 @@
 #include <iostream>
 #include <cuda_runtime.h>
 #include "CImg.h"
+#include "./metrictime.hpp"
 
 using namespace cimg_library;
 using namespace std;
+
+static int block_size = 32;
 
 __global__ void nearest_neighbor_interpolation(unsigned char *d_old_image, unsigned char *d_new_image, int old_width, int old_height, int new_width, int new_height){
     int old_size = old_height * old_width;
@@ -52,15 +55,19 @@ int main(int argc, char const *argv[])
     cudaMalloc((void**)&d_old_image, old_size * 3 * sizeof(unsigned char));
     cudaMalloc((void**)&d_new_image, new_size * 3 * sizeof(unsigned char));
 
+    TIMERSTART(Parallel_v2);
+
     cudaMemcpy(d_old_image, old_image, old_size * 3, cudaMemcpyHostToDevice);
 
-    dim3 blkDim (16, 16, 1);
-    dim3 grdDim ((new_width + 15)/16, (new_height + 15)/16, 3);
+    dim3 blkDim (block_size, block_size, 1);
+    dim3 grdDim ((new_width + block_size - 1)/block_size, (new_height + block_size - 1)/block_size, 3);
     nearest_neighbor_interpolation<<<grdDim, blkDim>>>(d_old_image, d_new_image, old_width, old_height, new_width, new_height);
 
     cudaDeviceSynchronize();
 
     cudaMemcpy(new_image, d_new_image, new_size * 3, cudaMemcpyDeviceToHost);
+
+    TIMERSTOP(Parallel_v2);
 
     img_out.save("new_img.jpeg");
 

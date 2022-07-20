@@ -1,7 +1,7 @@
-//g++ sequential_linear_interpolation.cpp -std=c++11 -O3 -Dcimg_jpeg=1 -Dcimg_display=0
-//g++ sequential_linear_interpolation.cpp -lX11
+//g++ sequential_linear_interpolation.cpp -std=c++11 -O3 -Dcimg_jpeg=1 -Dcimg_display=0 -o sequential_BLI
 #include <iostream>
 #include "CImg.h"
+#include "./others/metrictime.hpp"
 
 using namespace cimg_library;
 using namespace std;
@@ -13,9 +13,17 @@ int pixel(unsigned char *img, int x, int y, int width, int size, int rgb){
 int scale;
 
 int main(int argc, char const *argv[]){
-    if(argc != 3){
-        cout << "Modo de uso: "<< argv[0] << " \"Nombre_imagen\" \"factor de escalado(ej: int >= 1)\""<<endl;
+    int test = 0;
+    if(argc < 3){
+        cout << "Modo de uso: "<< argv[0] << " \"Nombre_imagen\" \"factor de escalado(ej: 2, 3)\""<<endl;
         return 1;
+    }
+    
+    if(argc > 3){
+        if(strcmp(argv[3], "test") == 0){
+            cout <<"------------------ Test -------------------" << endl;
+            test = 1;
+        }
     }
     scale = atoi(argv[2]);
     if(scale < 1){
@@ -36,6 +44,7 @@ int main(int argc, char const *argv[]){
     int new_width = img_out.width();
     int new_height = img_out.height();
 
+    TIMERSTART(SEQUENTIAL_BLI);
     for (int y = 0; y < new_height; y++){
         for (int x = 0; x < new_width; x++){
             if(x%scale == 0 && y%scale == 0){       // se mantiene el color ✅
@@ -69,6 +78,7 @@ int main(int argc, char const *argv[]){
             }
         }
     }
-    img_out.save("new_img.jpg");
+    TIMERSTOP(SEQUENTIAL_BLI);
+    if(!test)img_out.save("new_img.jpg");
     return 0;
 }

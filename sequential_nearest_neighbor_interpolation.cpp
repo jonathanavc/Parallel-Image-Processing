@@ -1,7 +1,8 @@
-//g++ sequential_nearest_neighbor_interpolation.cpp -std=c++11 -O3 -Dcimg_jpeg=1 -Dcimg_display=0
-//g++ sequential_nearest_neighbor_interpolation.cpp -lX11
+//g++ sequential_nearest_neighbor_interpolation.cpp -std=c++11 -O3 -Dcimg_jpeg=1 -Dcimg_display=0 -o sequential_NNI
 #include <iostream>
+#include <string>
 #include "CImg.h"
+#include "./others/metrictime.hpp"
 
 using namespace cimg_library;
 using namespace std;
@@ -9,9 +10,17 @@ using namespace std;
 float scale;
 
 int main(int argc, char const *argv[]){
-    if(argc != 3){
+    int test = 0;
+    if(argc < 3){
         cout << "Modo de uso: "<< argv[0] << " \"Nombre_imagen\" \"factor de escalado(ej: 2, 1.5)\""<<endl;
         return 1;
+    }
+    
+    if(argc > 3){
+        if(strcmp(argv[3], "test") == 0){
+            cout <<"------------------ Test -------------------" << endl;
+            test = 1;
+        }
     }
     scale = atof(argv[2]);
     CImg<unsigned char> img_in(argv[1]);
@@ -30,6 +39,7 @@ int main(int argc, char const *argv[]){
 
     scale = (float)new_width / old_width;
 
+    TIMERSTART(SEQUENTIAL_NNI);
     for (int y = 0; y < new_height; y++){
         for (int x = 0; x < new_width; x++){
             //R
@@ -40,6 +50,7 @@ int main(int argc, char const *argv[]){
             out[x + y*new_width + new_size*2] = in[(int)(x/scale) + (int)(y/scale) * old_width + old_size*2];
         }
     }
-    img_out.save("new_img.jpg");
+    TIMERSTOP(SEQUENTIAL_NNI);
+    if(!test) img_out.save("new_img.jpg");
     return 0;
 }
