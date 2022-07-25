@@ -1,10 +1,10 @@
 // nvcc parallel_video.cu -lX11
 
-
 #include <iostream>
 #include <vector>
 #include <dirent.h>
 #include <cuda_runtime.h>
+#include <thread>
 #include "CImg.h"
 #include "./others/metrictime.hpp"
 
@@ -15,28 +15,32 @@ static int block_size = 1024;
 
 static int pixel_per_thread = 32;
 
-static int img_per_kernel = 2;
+static int img_per_kernel = 256;
 
-__device__ int pixel(unsigned char *img, int x, int y, int width, int size, int rgb){
-    return img[(x) + (y)*width + size * rgb];
+static int cpu_threads = 1;
+
+__device__ int pixel(unsigned char *img, int x, int y, int width, int size, int rgb, int n_img){
+    return img[n_img * size * 3 + (x) + (y)*width + size * rgb];
 }
 
-__global__ void linear_interpolation(unsigned char *d_old_image, unsigned char *d_new_image, int old_width, int old_height, int new_width, int new_height,int  scale,int pixel_per_thread){
+__global__ void linear_interpolation(unsigned char *d_old_image, unsigned char *d_new_image, int old_width, int old_height, int new_width, int new_height, int  scale, int pixel_per_thread, int imgs_size){
     int old_size = old_height * old_width;
     int new_size = new_height * new_width;
     for (int i = 0; i < pixel_per_thread; i++){
         int pos = pixel_per_thread *(blockIdx.x * blockDim.x + threadIdx.x) + i;
-        int pos_x = (pos % new_size) % new_width;
-        int pos_y = (pos % new_size) / new_width;
-        int r_g_b = pos / new_size;
-        if (pos_x >= new_width || pos_y >= new_height) continue;
-        if (pos_x % scale == 0 && pos_y % scale == 0) d_new_image[pos_x + pos_y * new_width + new_size * r_g_b] = pixel(d_old_image, pos_x / scale, pos_y / scale, old_width, old_size, r_g_b);
-        else if (pos_x % scale == 0) d_new_image[pos_x + pos_y * new_width + new_size * r_g_b] = pixel(d_old_image, pos_x / scale, pos_y / scale, old_width, old_size, r_g_b) + (pos_y % scale) * ((pixel(d_old_image, pos_x / scale, pos_y / scale + 1, old_width, old_size, r_g_b) - pixel(d_old_image, pos_x / scale, pos_y / scale, old_width, old_size, r_g_b)) / (scale));
-        else if (pos_y % scale == 0) d_new_image[pos_x + pos_y * new_width + new_size * r_g_b] = pixel(d_old_image, pos_x / scale, pos_y / scale, old_width, old_size, r_g_b) + (pos_x % scale) * ((pixel(d_old_image, pos_x / scale + 1, pos_y / scale, old_width, old_size, r_g_b) - pixel(d_old_image, pos_x / scale, pos_y / scale, old_width, old_size, r_g_b)) / (scale));
+        int img = pos /(new_size * 3);
+        int img_pos = pos %(new_size * 3);
+        int pos_x = (img_pos % new_size) % new_width;
+        int pos_y = (img_pos % new_size) / new_width;
+        int r_g_b = img_pos / new_size;
+        if (img >= imgs_size) break;
+        if (pos_x % scale == 0 && pos_y % scale == 0) d_new_image[img * new_size * 3 + pos_x + pos_y * new_width + new_size * r_g_b] = pixel(d_old_image, pos_x / scale, pos_y / scale, old_width, old_size, r_g_b, img);
+        else if (pos_x % scale == 0) d_new_image[img * new_size * 3 + pos_x + pos_y * new_width + new_size * r_g_b] = pixel(d_old_image, pos_x / scale, pos_y / scale, old_width, old_size, r_g_b, img) + (pos_y % scale) * ((pixel(d_old_image, pos_x / scale, pos_y / scale + 1, old_width, old_size, r_g_b, img) - pixel(d_old_image, pos_x / scale, pos_y / scale, old_width, old_size, r_g_b, img)) / (scale));
+        else if (pos_y % scale == 0) d_new_image[img * new_size * 3 + pos_x + pos_y * new_width + new_size * r_g_b] = pixel(d_old_image, pos_x / scale, pos_y / scale, old_width, old_size, r_g_b, img) + (pos_x % scale) * ((pixel(d_old_image, pos_x / scale + 1, pos_y / scale, old_width, old_size, r_g_b, img) - pixel(d_old_image, pos_x / scale, pos_y / scale, old_width, old_size, r_g_b, img)) / (scale));
         else{
-            int x_y_r = pixel(d_old_image, pos_x / scale, pos_y / scale, old_width, old_size, r_g_b) + (pos_x % scale) * ((pixel(d_old_image, pos_x / scale + 1, pos_y / scale, old_width, old_size, r_g_b) - pixel(d_old_image, pos_x / scale, pos_y / scale, old_width, old_size, r_g_b)) / (scale));
-            int x_y_1_r = pixel(d_old_image, pos_x / scale, pos_y / scale + 1, old_width, old_size, r_g_b) + (pos_x % scale) * ((pixel(d_old_image, pos_x / scale + 1, pos_y / scale + 1, old_width, old_size, r_g_b) - pixel(d_old_image, pos_x / scale, pos_y / scale + 1, old_width, old_size, r_g_b)) / (scale));
-            d_new_image[pos_x + pos_y * new_width + new_size * r_g_b] = x_y_r + (pos_y % scale) * ((x_y_1_r - x_y_r) / scale);
+            int x_y_r = pixel(d_old_image, pos_x / scale, pos_y / scale, old_width, old_size, r_g_b, img) + (pos_x % scale) * ((pixel(d_old_image, pos_x / scale + 1, pos_y / scale, old_width, old_size, r_g_b, img) - pixel(d_old_image, pos_x / scale, pos_y / scale, old_width, old_size, r_g_b, img)) / (scale));
+            int x_y_1_r = pixel(d_old_image, pos_x / scale, pos_y / scale + 1, old_width, old_size, r_g_b, img) + (pos_x % scale) * ((pixel(d_old_image, pos_x / scale + 1, pos_y / scale + 1, old_width, old_size, r_g_b, img) - pixel(d_old_image, pos_x / scale, pos_y / scale + 1, old_width, old_size, r_g_b, img)) / (scale));
+            d_new_image[img * new_size * 3 + pos_x + pos_y * new_width + new_size * r_g_b] = x_y_r + (pos_y % scale) * ((x_y_1_r - x_y_r) / scale);
         }
     }
 }
@@ -83,64 +87,21 @@ void interpolate(vector<string> paths, vector<string> file_names, int scale, int
     dim3 grdDim (((new_size + block_size - 1)/block_size + pixel_per_thread - 1)/pixel_per_thread, 1, 1);
 
     if(interpolation_mode == 1) nearest_neighbor_interpolation<<<grdDim, blkDim>>>(d_old_images, d_new_images, old_imgs.at(0).width(), old_imgs.at(0).height(), new_imgs.at(0).width(), new_imgs.at(0).height(), pixel_per_thread, paths.size());
-    if(interpolation_mode == 2) linear_interpolation<<<grdDim, blkDim>>>(d_old_images, d_new_images, old_imgs.at(0).width(), old_imgs.at(0).height(), new_imgs.at(0).width(), new_imgs.at(0).height(), scale, pixel_per_thread);
+    if(interpolation_mode == 2) linear_interpolation<<<grdDim, blkDim>>>(d_old_images, d_new_images, old_imgs.at(0).width(), old_imgs.at(0).height(), new_imgs.at(0).width(), new_imgs.at(0).height(), scale, pixel_per_thread, paths.size());
 
     cudaDeviceSynchronize();
 
     for (int i = 0; i < paths.size(); i++){
         cudaMemcpy(new_imgs.at(i).data(), d_new_images + i * new_imgs.at(0).size(), new_imgs.at(i).size(), cudaMemcpyDeviceToHost);
     }
-    for (int i = 0; i < paths.size(); i++){
-        cout << "Guardando " << file_names.at(i) << "..." << endl;
-        string _ = "new_imgs/";
-        _.append(file_names.at(i));
-        new_imgs.at(i).save(_.c_str());
+    if(!test){
+        for (int i = 0; i < paths.size(); i++){
+            cout << "Guardando " << file_names.at(i) << "..." << endl;
+            string _ = "new_imgs/";
+            _.append(file_names.at(i));
+            new_imgs.at(i).save(_.c_str());
+        }
     }
-
-    /*
-    CImg<unsigned char> img_in(path.c_str());
-    int old_size = img_in.size() / 3;
-    int old_width = img_in.width();
-    int old_height = img_in.height();
-    unsigned long long size = img_in.size();
-    unsigned char *old_image = img_in.data();
-
-    CImg<unsigned char> img_out;
-    if(interpolation_mode == 1) img_out = CImg<unsigned char>(old_width * scale, old_height * scale, 1, 3, 255);
-    if(interpolation_mode == 2) img_out = CImg<unsigned char>(old_width * scale - (scale - 1), old_height * scale - (scale - 1), 1, 3, 255);
-    unsigned char *new_image = img_out.data();
-    int new_size = img_out.size() / 3;
-    int new_width = img_out.width();
-    int new_height = img_out.height();
-
-    unsigned char *d_old_image;
-    unsigned char *d_new_image;
-
-    cudaMalloc((void **)&d_old_image, old_size * 3 * sizeof(unsigned char));
-    cudaMalloc((void **)&d_new_image, new_size * 3 * sizeof(unsigned char));
-
-    //TIMERSTART(parallel);
-    cudaMemcpy(d_old_image, old_image, old_size * 3, cudaMemcpyHostToDevice);
-
-    dim3 blkDim (block_size, 1, 1);
-    dim3 grdDim ((((new_size * 3) + block_size - 1)/block_size + pixel_per_thread - 1)/pixel_per_thread, 1, 1);
-
-    if(interpolation_mode == 1) nearest_neighbor_interpolation<<<grdDim, blkDim>>>(d_old_image, d_new_image, old_width, old_height, new_width, new_height, pixel_per_thread);
-    if(interpolation_mode == 2) linear_interpolation<<<grdDim, blkDim>>>(d_old_image, d_new_image, old_width, old_height, new_width, new_height, scale, pixel_per_thread);
-
-    cudaDeviceSynchronize();
-
-    cudaMemcpy(new_image, d_new_image, new_size * 3, cudaMemcpyDeviceToHost);
-
-    //TIMERSTOP(parallel);
-
-    string _ = "new_imgs/";
-    _.append(file_name);
-    //cout << "saving " << file_name << "..." << endl;
-    img_out.save(_.c_str());
-    cudaFree(d_old_image);
-    cudaFree(d_new_image);
-    */
     cudaFree(d_old_images);
     cudaFree(d_new_images);
 }
@@ -190,7 +151,7 @@ int main(int argc, char const *argv[]){
                 names.clear();
             }
         }
-        interpolate(imgs, names, scale, interpolation_mode, test);
+        if(imgs.size() != 0) interpolate(imgs, names, scale, interpolation_mode, test);
         closedir(dir);
     }
     TIMERSTOP(ALL_IMGS);
