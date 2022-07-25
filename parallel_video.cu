@@ -52,12 +52,12 @@ __global__ void nearest_neighbor_interpolation(unsigned char *d_old_image, unsig
         int pos_x = (img_pos % new_size) % new_width;
         int pos_y = (img_pos % new_size) / new_width;
         int r_g_b = img_pos / new_size;
-        if (img > imgs_size) break;
+        if (img >= imgs_size) break;
         d_new_image[img * new_size * 3 + pos_x + pos_y * new_width + new_size * r_g_b] = d_old_image[img * old_size * 3 + (int)(pos_x / scale) + (int)(pos_y / scale) * old_width + old_size * r_g_b];
     }
 }
 
-void interpolate(vector<string> paths, vector<string> file_names, int scale, int interpolation_mode){
+void interpolate(vector<string> paths, vector<string> file_names, int scale, int interpolation_mode, int test){
     unsigned long long old_size = 0;
     unsigned long long new_size = 0;
     unsigned char *d_old_images;
@@ -76,12 +76,11 @@ void interpolate(vector<string> paths, vector<string> file_names, int scale, int
     }
     cudaMalloc((void **)&d_old_images, old_size);
     cudaMalloc((void **)&d_new_images, new_size);
-
     for (int i = 0; i < paths.size(); i++){
         cudaMemcpy(d_old_images + i * old_imgs.at(i).size(), old_imgs.at(i).data(), old_imgs.at(i).size(), cudaMemcpyHostToDevice);
     }
     dim3 blkDim (block_size, 1, 1);
-    dim3 grdDim ((((new_size/paths.size()) + block_size - 1)/block_size + pixel_per_thread - 1)/pixel_per_thread, 1, 1);
+    dim3 grdDim (((new_size + block_size - 1)/block_size + pixel_per_thread - 1)/pixel_per_thread, 1, 1);
 
     if(interpolation_mode == 1) nearest_neighbor_interpolation<<<grdDim, blkDim>>>(d_old_images, d_new_images, old_imgs.at(0).width(), old_imgs.at(0).height(), new_imgs.at(0).width(), new_imgs.at(0).height(), pixel_per_thread, paths.size());
     if(interpolation_mode == 2) linear_interpolation<<<grdDim, blkDim>>>(d_old_images, d_new_images, old_imgs.at(0).width(), old_imgs.at(0).height(), new_imgs.at(0).width(), new_imgs.at(0).height(), scale, pixel_per_thread);
@@ -186,12 +185,12 @@ int main(int argc, char const *argv[]){
             imgs.push_back(_);
             names.push_back(f->d_name);
             if(imgs.size() == img_per_kernel){
-                interpolate(imgs, names, scale, interpolation_mode);
+                interpolate(imgs, names, scale, interpolation_mode, test);
                 imgs.clear();
                 names.clear();
             }
         }
-        interpolate(imgs, names, scale, interpolation_mode);
+        interpolate(imgs, names, scale, interpolation_mode, test);
         closedir(dir);
     }
     TIMERSTOP(ALL_IMGS);
