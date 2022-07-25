@@ -16,9 +16,11 @@ static int block_size = 1024;
 
 static int pixel_per_thread = 32;
 
-static int img_per_kernel = 128;
+static int img_per_kernel = 80;
 
-static int cpu_threads = 12;
+static int cpu_threads = 8;
+
+int n_imgs = 0;
 
 atomic<long long> imgs_ok(0);
 
@@ -81,8 +83,10 @@ void interpolate(vector<string> *paths, vector<string> *file_names, int scale, i
         if(interpolation_mode == 2) new_imgs.push_back(CImg<unsigned char>(old_imgs.at(i).width()* scale - (scale - 1), old_imgs.at(i).height() * scale - (scale - 1), 1, 3, 255));
         new_size += new_imgs.at(i).size();
     }
+
     cudaMalloc((void **)&d_old_images, old_size);
     cudaMalloc((void **)&d_new_images, new_size);
+
     for (int i = 0; i < paths->size(); i++){
         cudaMemcpy(d_old_images + i * old_imgs.at(i).size(), old_imgs.at(i).data(), old_imgs.at(i).size(), cudaMemcpyHostToDevice);
     }
@@ -97,6 +101,9 @@ void interpolate(vector<string> *paths, vector<string> *file_names, int scale, i
     for (int i = 0; i < paths->size(); i++){
         cudaMemcpy(new_imgs.at(i).data(), d_new_images + i * new_imgs.at(0).size(), new_imgs.at(i).size(), cudaMemcpyDeviceToHost);
     }
+
+    cudaFree(d_old_images);
+
     if(!test){
         for (int i = 0; i < paths->size(); i++){
             string _ = "new_imgs/";
@@ -104,11 +111,12 @@ void interpolate(vector<string> *paths, vector<string> *file_names, int scale, i
             new_imgs.at(i).save(_.c_str());
         }
         imgs_ok += paths->size();
-        cout << "imgs_ok:" << imgs_ok << endl;
+        system("CLS");
+        cout << ((float)imgs_ok/n_imgs)*100 << "%" << endl;
     }
-    paths->clear();
-    file_names->clear();
-    cudaFree(d_old_images);
+
+    vector<string>().swap(*paths);
+    vector<string>().swap(*file_names);
     cudaFree(d_new_images);
 }
 
@@ -144,6 +152,10 @@ int main(int argc, char const *argv[]){
     // leer todos los archivos de una carpeta
     vector<vector<string>> imgs(cpu_threads);
     vector<vector<string>> names(cpu_threads);
+    if (auto dir = opendir(path.c_str())) {
+        while (auto f = readdir(dir)) n_imgs++;
+        closedir(dir);
+    }
     if (auto dir = opendir(path.c_str())) {
         int actual_thread = 0;
         while (auto f = readdir(dir)) {
