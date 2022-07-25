@@ -6,6 +6,7 @@
 #include <cuda_runtime.h>
 #include <thread>
 #include <atomic>
+#include <chrono>
 #include "CImg.h"
 #include "./others/metrictime.hpp"
 
@@ -16,13 +17,15 @@ static int block_size = 1024;
 
 static int pixel_per_thread = 32;
 
-static int img_per_kernel = 80;
+static int img_per_kernel = 120;
 
 static int cpu_threads = 8;
 
 int n_imgs = 0;
 
 atomic<long long> imgs_ok(0);
+
+std::chrono::_V2::system_clock::time_point start;
 
 __device__ int pixel(unsigned char *img, int x, int y, int width, int size, int rgb, int n_img){
     return img[n_img * size * 3 + (x) + (y)*width + size * rgb];
@@ -78,9 +81,10 @@ void interpolate(vector<string> *paths, vector<string> *file_names, int scale, i
         old_size += old_imgs.at(i).size();
     }
 
+    old_imgs.at(0).
     for (int i = 0; i < paths->size(); i++){
-        if(interpolation_mode == 1) new_imgs.push_back(CImg<unsigned char>(old_imgs.at(i).width() * scale, old_imgs.at(i).height() * scale, 1, 3, 255));
-        if(interpolation_mode == 2) new_imgs.push_back(CImg<unsigned char>(old_imgs.at(i).width()* scale - (scale - 1), old_imgs.at(i).height() * scale - (scale - 1), 1, 3, 255));
+        if(interpolation_mode == 1) new_imgs.push_back(CImg<unsigned char>(old_imgs.at(i).width() * scale, old_imgs.at(i).height() * scale, 1, 1, 255));
+        if(interpolation_mode == 2) new_imgs.push_back(CImg<unsigned char>(old_imgs.at(i).width()* scale - (scale - 1), old_imgs.at(i).height() * scale - (scale - 1), 1, 1, 255));
         new_size += new_imgs.at(i).size();
     }
 
@@ -102,8 +106,6 @@ void interpolate(vector<string> *paths, vector<string> *file_names, int scale, i
         cudaMemcpy(new_imgs.at(i).data(), d_new_images + i * new_imgs.at(0).size(), new_imgs.at(i).size(), cudaMemcpyDeviceToHost);
     }
 
-    cudaFree(d_old_images);
-
     if(!test){
         for (int i = 0; i < paths->size(); i++){
             string _ = "new_imgs/";
@@ -111,13 +113,14 @@ void interpolate(vector<string> *paths, vector<string> *file_names, int scale, i
             new_imgs.at(i).save(_.c_str());
         }
         imgs_ok += paths->size();
-        system("CLS");
-        cout << ((float)imgs_ok/n_imgs)*100 << "%" << endl;
+        system("clear");
+        std::chrono::duration<float,std::milli> duration = std::chrono::system_clock::now() - start;
+        cout << ((float)imgs_ok/n_imgs)*100 << "% ";
+        cout << "tiempo restante "<< (duration.count()/1000)/((float)imgs_ok/n_imgs) - duration.count()/1000 <<"s"<< endl;
+        
     }
-
-    vector<string>().swap(*paths);
-    vector<string>().swap(*file_names);
     cudaFree(d_new_images);
+    cudaFree(d_old_images);
 }
 
 int main(int argc, char const *argv[]){
@@ -148,7 +151,6 @@ int main(int argc, char const *argv[]){
         }
     }
     path = argv[1];
-    TIMERSTART(ALL_IMGS);
     // leer todos los archivos de una carpeta
     vector<vector<string>> imgs(cpu_threads);
     vector<vector<string>> names(cpu_threads);
@@ -157,11 +159,14 @@ int main(int argc, char const *argv[]){
         closedir(dir);
     }
     if (auto dir = opendir(path.c_str())) {
+        start = std::chrono::system_clock::now();
         int actual_thread = 0;
         while (auto f = readdir(dir)) {
             if(actual_thread == cpu_threads) actual_thread = 0;
             if(threads[actual_thread].joinable()){
                 threads[actual_thread].join();
+                vector<string>().swap(imgs.at(actual_thread));
+                vector<string>().swap(names.at(actual_thread));
             }
             if (!f->d_name || f->d_name[0] == '.') continue; // Skip everything that starts with a dot
             string _ = argv[1];
@@ -175,8 +180,10 @@ int main(int argc, char const *argv[]){
             }
         }
         if(imgs.at(actual_thread).size() != 0 && imgs.at(actual_thread).size() != img_per_kernel) interpolate(&imgs.at(actual_thread), &names.at(actual_thread), scale, interpolation_mode, test);
+        for (int i = 0; i < cpu_threads; i++) if(threads[i].joinable()) threads[i].join();
+        std::chrono::duration<float,std::milli> duration = std::chrono::system_clock::now() - start;
+        cout << "tiempo total: "<< duration.count()/1000 <<"s"<< endl;
         closedir(dir);
     }
-    TIMERSTOP(ALL_IMGS);
     return 0;
 }

@@ -1,6 +1,6 @@
 import cv2
 
-capture = cv2.VideoCapture('Popeye the Sailor Meets Sindbad the Sailor.mp4')
+capture = cv2.VideoCapture('videoplayback (1).mp4')
 cont = 0
 path = ""
 
