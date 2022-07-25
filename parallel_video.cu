@@ -5,6 +5,7 @@
 #include <dirent.h>
 #include <cuda_runtime.h>
 #include <thread>
+#include <atomic>
 #include "CImg.h"
 #include "./others/metrictime.hpp"
 
@@ -15,9 +16,11 @@ static int block_size = 1024;
 
 static int pixel_per_thread = 32;
 
-static int img_per_kernel = 256;
+static int img_per_kernel = 128;
 
-static int cpu_threads = 1;
+static int cpu_threads = 12;
+
+atomic<long long> imgs_ok(0);
 
 __device__ int pixel(unsigned char *img, int x, int y, int width, int size, int rgb, int n_img){
     return img[n_img * size * 3 + (x) + (y)*width + size * rgb];
@@ -61,47 +64,50 @@ __global__ void nearest_neighbor_interpolation(unsigned char *d_old_image, unsig
     }
 }
 
-void interpolate(vector<string> paths, vector<string> file_names, int scale, int interpolation_mode, int test){
+void interpolate(vector<string> *paths, vector<string> *file_names, int scale, int interpolation_mode, int test){
     unsigned long long old_size = 0;
     unsigned long long new_size = 0;
     unsigned char *d_old_images;
     unsigned char *d_new_images;
     vector<CImg<unsigned char>> old_imgs;
     vector<CImg<unsigned char>> new_imgs;
-    for (int i = 0; i < paths.size(); i++){
-        old_imgs.push_back(CImg<unsigned char>(paths.at(i).c_str()));
+    for (int i = 0; i < paths->size(); i++){
+        old_imgs.push_back(CImg<unsigned char>(paths->at(i).c_str()));
         old_size += old_imgs.at(i).size();
     }
 
-    for (int i = 0; i < paths.size(); i++){
+    for (int i = 0; i < paths->size(); i++){
         if(interpolation_mode == 1) new_imgs.push_back(CImg<unsigned char>(old_imgs.at(i).width() * scale, old_imgs.at(i).height() * scale, 1, 3, 255));
         if(interpolation_mode == 2) new_imgs.push_back(CImg<unsigned char>(old_imgs.at(i).width()* scale - (scale - 1), old_imgs.at(i).height() * scale - (scale - 1), 1, 3, 255));
         new_size += new_imgs.at(i).size();
     }
     cudaMalloc((void **)&d_old_images, old_size);
     cudaMalloc((void **)&d_new_images, new_size);
-    for (int i = 0; i < paths.size(); i++){
+    for (int i = 0; i < paths->size(); i++){
         cudaMemcpy(d_old_images + i * old_imgs.at(i).size(), old_imgs.at(i).data(), old_imgs.at(i).size(), cudaMemcpyHostToDevice);
     }
     dim3 blkDim (block_size, 1, 1);
     dim3 grdDim (((new_size + block_size - 1)/block_size + pixel_per_thread - 1)/pixel_per_thread, 1, 1);
 
-    if(interpolation_mode == 1) nearest_neighbor_interpolation<<<grdDim, blkDim>>>(d_old_images, d_new_images, old_imgs.at(0).width(), old_imgs.at(0).height(), new_imgs.at(0).width(), new_imgs.at(0).height(), pixel_per_thread, paths.size());
-    if(interpolation_mode == 2) linear_interpolation<<<grdDim, blkDim>>>(d_old_images, d_new_images, old_imgs.at(0).width(), old_imgs.at(0).height(), new_imgs.at(0).width(), new_imgs.at(0).height(), scale, pixel_per_thread, paths.size());
+    if(interpolation_mode == 1) nearest_neighbor_interpolation<<<grdDim, blkDim>>>(d_old_images, d_new_images, old_imgs.at(0).width(), old_imgs.at(0).height(), new_imgs.at(0).width(), new_imgs.at(0).height(), pixel_per_thread, paths->size());
+    if(interpolation_mode == 2) linear_interpolation<<<grdDim, blkDim>>>(d_old_images, d_new_images, old_imgs.at(0).width(), old_imgs.at(0).height(), new_imgs.at(0).width(), new_imgs.at(0).height(), scale, pixel_per_thread, paths->size());
 
     cudaDeviceSynchronize();
 
-    for (int i = 0; i < paths.size(); i++){
+    for (int i = 0; i < paths->size(); i++){
         cudaMemcpy(new_imgs.at(i).data(), d_new_images + i * new_imgs.at(0).size(), new_imgs.at(i).size(), cudaMemcpyDeviceToHost);
     }
     if(!test){
-        for (int i = 0; i < paths.size(); i++){
-            cout << "Guardando " << file_names.at(i) << "..." << endl;
+        for (int i = 0; i < paths->size(); i++){
             string _ = "new_imgs/";
-            _.append(file_names.at(i));
+            _.append(file_names->at(i));
             new_imgs.at(i).save(_.c_str());
         }
+        imgs_ok += paths->size();
+        cout << "imgs_ok:" << imgs_ok << endl;
     }
+    paths->clear();
+    file_names->clear();
     cudaFree(d_old_images);
     cudaFree(d_new_images);
 }
@@ -110,6 +116,7 @@ int main(int argc, char const *argv[]){
     int test = 0;
     int interpolation_mode = 0;
     int scale = 0;
+    thread threads[cpu_threads];
     string path;
     if (argc < 4){
         cout << "Modo de uso: " << argv[0] << " \"Nombre imagen\" \"tecnica(NNI/LI)\" \"factor de escalado(ej: int >= 1)\"" << endl;
@@ -135,23 +142,27 @@ int main(int argc, char const *argv[]){
     path = argv[1];
     TIMERSTART(ALL_IMGS);
     // leer todos los archivos de una carpeta
-    vector<string> imgs;
-    vector<string> names;
+    vector<vector<string>> imgs(cpu_threads);
+    vector<vector<string>> names(cpu_threads);
     if (auto dir = opendir(path.c_str())) {
+        int actual_thread = 0;
         while (auto f = readdir(dir)) {
+            if(actual_thread == cpu_threads) actual_thread = 0;
+            if(threads[actual_thread].joinable()){
+                threads[actual_thread].join();
+            }
             if (!f->d_name || f->d_name[0] == '.') continue; // Skip everything that starts with a dot
             string _ = argv[1];
             if(_.at(_.length() - 1) != '/') _.append("/");
             _.append(f->d_name);
-            imgs.push_back(_);
-            names.push_back(f->d_name);
-            if(imgs.size() == img_per_kernel){
-                interpolate(imgs, names, scale, interpolation_mode, test);
-                imgs.clear();
-                names.clear();
+            imgs.at(actual_thread).push_back(_);
+            names.at(actual_thread).push_back(f->d_name);
+            if(imgs.at(actual_thread).size() == img_per_kernel){
+                threads[actual_thread] = thread(interpolate, &imgs.at(actual_thread), &names.at(actual_thread), scale, interpolation_mode, test);
+                actual_thread++;
             }
         }
-        if(imgs.size() != 0) interpolate(imgs, names, scale, interpolation_mode, test);
+        if(imgs.at(actual_thread).size() != 0 && imgs.at(actual_thread).size() != img_per_kernel) interpolate(&imgs.at(actual_thread), &names.at(actual_thread), scale, interpolation_mode, test);
         closedir(dir);
     }
     TIMERSTOP(ALL_IMGS);
