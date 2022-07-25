@@ -17,8 +17,7 @@ __device__ int pixel(unsigned char *img, int x, int y, int width, int size, int 
     return img[(x) + (y)*width + size * rgb];
 }
 
-__global__ void nearest_neighbor_interpolation(unsigned char *d_old_image, unsigned char *d_new_image, int old_width, int old_height, int new_width, int new_height,int  scale,int pixel_per_thread)
-{
+__global__ void nearest_neighbor_interpolation(unsigned char *d_old_image, unsigned char *d_new_image, int old_width, int old_height, int new_width, int new_height,int  scale,int pixel_per_thread){
     int old_size = old_height * old_width;
     int new_size = new_height * new_width;
 
@@ -46,9 +45,7 @@ __global__ void nearest_neighbor_interpolation(unsigned char *d_old_image, unsig
             int x_y_1_r = pixel(d_old_image, pos_x / scale, pos_y / scale + 1, old_width, old_size, r_g_b) + (pos_x % scale) * ((pixel(d_old_image, pos_x / scale + 1, pos_y / scale + 1, old_width, old_size, r_g_b) - pixel(d_old_image, pos_x / scale, pos_y / scale + 1, old_width, old_size, r_g_b)) / (scale));
             d_new_image[pos_x + pos_y * new_width + new_size * r_g_b] = x_y_r + (pos_y % scale) * ((x_y_1_r - x_y_r) / scale);
         }
-    }
-    
-    
+    } 
 }
 
 int main(int argc, char const *argv[])
