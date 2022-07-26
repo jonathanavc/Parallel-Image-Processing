@@ -15,57 +15,58 @@ using namespace std;
 
 static int block_size = 1024;
 
-static int pixel_per_thread = 32;
+static int pixel_per_thread = 128;
 
-static int img_per_kernel = 120;
+static int img_per_kernel = 128;
 
-static int cpu_threads = 8;
+static int cpu_threads = 12;
 
 int n_imgs = 0;
 
 atomic<long long> imgs_ok(0);
+atomic<short> read_write_thread(0);
 
 std::chrono::_V2::system_clock::time_point start;
 
-__device__ int pixel(unsigned char *img, int x, int y, int width, int size, int rgb, int n_img){
-    return img[n_img * size * 3 + (x) + (y)*width + size * rgb];
+__device__ int pixel(unsigned char *img, int x, int y, int width, int size, int rgb, int n_img, int spectrum){
+    return img[n_img * size * spectrum + (x) + (y)*width + size * rgb];
 }
 
-__global__ void linear_interpolation(unsigned char *d_old_image, unsigned char *d_new_image, int old_width, int old_height, int new_width, int new_height, int  scale, int pixel_per_thread, int imgs_size){
+__global__ void linear_interpolation(unsigned char *d_old_image, unsigned char *d_new_image, int old_width, int old_height, int new_width, int new_height, int  scale, int pixel_per_thread, int imgs_size, int spectrum){
     int old_size = old_height * old_width;
     int new_size = new_height * new_width;
     for (int i = 0; i < pixel_per_thread; i++){
         int pos = pixel_per_thread *(blockIdx.x * blockDim.x + threadIdx.x) + i;
-        int img = pos /(new_size * 3);
-        int img_pos = pos %(new_size * 3);
+        int img = pos /(new_size * spectrum);
+        int img_pos = pos %(new_size * spectrum);
         int pos_x = (img_pos % new_size) % new_width;
         int pos_y = (img_pos % new_size) / new_width;
         int r_g_b = img_pos / new_size;
         if (img >= imgs_size) break;
-        if (pos_x % scale == 0 && pos_y % scale == 0) d_new_image[img * new_size * 3 + pos_x + pos_y * new_width + new_size * r_g_b] = pixel(d_old_image, pos_x / scale, pos_y / scale, old_width, old_size, r_g_b, img);
-        else if (pos_x % scale == 0) d_new_image[img * new_size * 3 + pos_x + pos_y * new_width + new_size * r_g_b] = pixel(d_old_image, pos_x / scale, pos_y / scale, old_width, old_size, r_g_b, img) + (pos_y % scale) * ((pixel(d_old_image, pos_x / scale, pos_y / scale + 1, old_width, old_size, r_g_b, img) - pixel(d_old_image, pos_x / scale, pos_y / scale, old_width, old_size, r_g_b, img)) / (scale));
-        else if (pos_y % scale == 0) d_new_image[img * new_size * 3 + pos_x + pos_y * new_width + new_size * r_g_b] = pixel(d_old_image, pos_x / scale, pos_y / scale, old_width, old_size, r_g_b, img) + (pos_x % scale) * ((pixel(d_old_image, pos_x / scale + 1, pos_y / scale, old_width, old_size, r_g_b, img) - pixel(d_old_image, pos_x / scale, pos_y / scale, old_width, old_size, r_g_b, img)) / (scale));
+        if (pos_x % scale == 0 && pos_y % scale == 0) d_new_image[img * new_size * spectrum + pos_x + pos_y * new_width + new_size * r_g_b] = pixel(d_old_image, pos_x / scale, pos_y / scale, old_width, old_size, r_g_b, img, spectrum);
+        else if (pos_x % scale == 0) d_new_image[img * new_size * spectrum + pos_x + pos_y * new_width + new_size * r_g_b] = pixel(d_old_image, pos_x / scale, pos_y / scale, old_width, old_size, r_g_b, img, spectrum) + (pos_y % scale) * ((pixel(d_old_image, pos_x / scale, pos_y / scale + 1, old_width, old_size, r_g_b, img, spectrum) - pixel(d_old_image, pos_x / scale, pos_y / scale, old_width, old_size, r_g_b, img, spectrum)) / (scale));
+        else if (pos_y % scale == 0) d_new_image[img * new_size * spectrum + pos_x + pos_y * new_width + new_size * r_g_b] = pixel(d_old_image, pos_x / scale, pos_y / scale, old_width, old_size, r_g_b, img, spectrum) + (pos_x % scale) * ((pixel(d_old_image, pos_x / scale + 1, pos_y / scale, old_width, old_size, r_g_b, img, spectrum) - pixel(d_old_image, pos_x / scale, pos_y / scale, old_width, old_size, r_g_b, img, spectrum)) / (scale));
         else{
-            int x_y_r = pixel(d_old_image, pos_x / scale, pos_y / scale, old_width, old_size, r_g_b, img) + (pos_x % scale) * ((pixel(d_old_image, pos_x / scale + 1, pos_y / scale, old_width, old_size, r_g_b, img) - pixel(d_old_image, pos_x / scale, pos_y / scale, old_width, old_size, r_g_b, img)) / (scale));
-            int x_y_1_r = pixel(d_old_image, pos_x / scale, pos_y / scale + 1, old_width, old_size, r_g_b, img) + (pos_x % scale) * ((pixel(d_old_image, pos_x / scale + 1, pos_y / scale + 1, old_width, old_size, r_g_b, img) - pixel(d_old_image, pos_x / scale, pos_y / scale + 1, old_width, old_size, r_g_b, img)) / (scale));
-            d_new_image[img * new_size * 3 + pos_x + pos_y * new_width + new_size * r_g_b] = x_y_r + (pos_y % scale) * ((x_y_1_r - x_y_r) / scale);
+            int x_y_r = pixel(d_old_image, pos_x / scale, pos_y / scale, old_width, old_size, r_g_b, img, spectrum) + (pos_x % scale) * ((pixel(d_old_image, pos_x / scale + 1, pos_y / scale, old_width, old_size, r_g_b, img, spectrum) - pixel(d_old_image, pos_x / scale, pos_y / scale, old_width, old_size, r_g_b, img, spectrum)) / (scale));
+            int x_y_1_r = pixel(d_old_image, pos_x / scale, pos_y / scale + 1, old_width, old_size, r_g_b, img, spectrum) + (pos_x % scale) * ((pixel(d_old_image, pos_x / scale + 1, pos_y / scale + 1, old_width, old_size, r_g_b, img, spectrum) - pixel(d_old_image, pos_x / scale, pos_y / scale + 1, old_width, old_size, r_g_b, img, spectrum)) / (scale));
+            d_new_image[img * new_size * spectrum + pos_x + pos_y * new_width + new_size * r_g_b] = x_y_r + (pos_y % scale) * ((x_y_1_r - x_y_r) / scale);
         }
     }
 }
 
-__global__ void nearest_neighbor_interpolation(unsigned char *d_old_image, unsigned char *d_new_image, int old_width, int old_height, int new_width, int new_height, int pixel_per_thread, int imgs_size){
+__global__ void nearest_neighbor_interpolation(unsigned char *d_old_image, unsigned char *d_new_image, int old_width, int old_height, int new_width, int new_height, int pixel_per_thread, int imgs_size, int spectrum){
     int old_size = old_height * old_width;
     int new_size = new_height * new_width;
     float scale = (float)new_width / old_width;
     for (int i = 0; i < pixel_per_thread; i++){
         int pos = pixel_per_thread * (blockIdx.x * blockDim.x + threadIdx.x) + i;
-        int img = pos /(new_size * 3);
-        int img_pos = pos %(new_size * 3);
+        int img = pos /(new_size * spectrum);
+        int img_pos = pos %(new_size * spectrum);
         int pos_x = (img_pos % new_size) % new_width;
         int pos_y = (img_pos % new_size) / new_width;
         int r_g_b = img_pos / new_size;
         if (img >= imgs_size) break;
-        d_new_image[img * new_size * 3 + pos_x + pos_y * new_width + new_size * r_g_b] = d_old_image[img * old_size * 3 + (int)(pos_x / scale) + (int)(pos_y / scale) * old_width + old_size * r_g_b];
+        d_new_image[img * new_size * spectrum + pos_x + pos_y * new_width + new_size * r_g_b] = d_old_image[img * old_size * spectrum + (int)(pos_x / scale) + (int)(pos_y / scale) * old_width + old_size * r_g_b];
     }
 }
 
@@ -81,27 +82,28 @@ void interpolate(vector<string> *paths, vector<string> *file_names, int scale, i
         old_size += old_imgs.at(i).size();
     }
 
-    old_imgs.at(0).
     for (int i = 0; i < paths->size(); i++){
-        if(interpolation_mode == 1) new_imgs.push_back(CImg<unsigned char>(old_imgs.at(i).width() * scale, old_imgs.at(i).height() * scale, 1, 1, 255));
-        if(interpolation_mode == 2) new_imgs.push_back(CImg<unsigned char>(old_imgs.at(i).width()* scale - (scale - 1), old_imgs.at(i).height() * scale - (scale - 1), 1, 1, 255));
+        if(interpolation_mode == 1) new_imgs.push_back(CImg<unsigned char>(old_imgs.at(i).width() * scale, old_imgs.at(i).height() * scale, 1, old_imgs.at(0).spectrum(), 255));
+        if(interpolation_mode == 2) new_imgs.push_back(CImg<unsigned char>(old_imgs.at(i).width()* scale - (scale - 1), old_imgs.at(i).height() * scale - (scale - 1), 1, old_imgs.at(0).spectrum(), 255));
         new_size += new_imgs.at(i).size();
     }
 
     cudaMalloc((void **)&d_old_images, old_size);
     cudaMalloc((void **)&d_new_images, new_size);
-
+    
     for (int i = 0; i < paths->size(); i++){
         cudaMemcpy(d_old_images + i * old_imgs.at(i).size(), old_imgs.at(i).data(), old_imgs.at(i).size(), cudaMemcpyHostToDevice);
     }
-    dim3 blkDim (block_size, 1, 1);
-    dim3 grdDim (((new_size + block_size - 1)/block_size + pixel_per_thread - 1)/pixel_per_thread, 1, 1);
 
-    if(interpolation_mode == 1) nearest_neighbor_interpolation<<<grdDim, blkDim>>>(d_old_images, d_new_images, old_imgs.at(0).width(), old_imgs.at(0).height(), new_imgs.at(0).width(), new_imgs.at(0).height(), pixel_per_thread, paths->size());
-    if(interpolation_mode == 2) linear_interpolation<<<grdDim, blkDim>>>(d_old_images, d_new_images, old_imgs.at(0).width(), old_imgs.at(0).height(), new_imgs.at(0).width(), new_imgs.at(0).height(), scale, pixel_per_thread, paths->size());
+    dim3 blkDim (block_size, 1, 1);
+    //dim3 grdDim (((new_size + block_size - 1)/block_size + pixel_per_thread - 1)/pixel_per_thread, 1, 1);
+    dim3 grdDim ((new_size + block_size + pixel_per_thread - 1)/(block_size * pixel_per_thread), 1, 1);
+
+    if(interpolation_mode == 1) nearest_neighbor_interpolation<<<grdDim, blkDim>>>(d_old_images, d_new_images, old_imgs.at(0).width(), old_imgs.at(0).height(), new_imgs.at(0).width(), new_imgs.at(0).height(), pixel_per_thread, paths->size(), old_imgs.at(0).spectrum());
+    if(interpolation_mode == 2) linear_interpolation<<<grdDim, blkDim>>>(d_old_images, d_new_images, old_imgs.at(0).width(), old_imgs.at(0).height(), new_imgs.at(0).width(), new_imgs.at(0).height(), scale, pixel_per_thread, paths->size(), old_imgs.at(0).spectrum());
 
     cudaDeviceSynchronize();
-
+    
     for (int i = 0; i < paths->size(); i++){
         cudaMemcpy(new_imgs.at(i).data(), d_new_images + i * new_imgs.at(0).size(), new_imgs.at(i).size(), cudaMemcpyDeviceToHost);
     }
@@ -112,13 +114,15 @@ void interpolate(vector<string> *paths, vector<string> *file_names, int scale, i
             _.append(file_names->at(i));
             new_imgs.at(i).save(_.c_str());
         }
-        imgs_ok += paths->size();
         system("clear");
+        imgs_ok += paths->size();
         std::chrono::duration<float,std::milli> duration = std::chrono::system_clock::now() - start;
-        cout << ((float)imgs_ok/n_imgs)*100 << "% ";
-        cout << "tiempo restante "<< (duration.count()/1000)/((float)imgs_ok/n_imgs) - duration.count()/1000 <<"s"<< endl;
-        
+        cout << "["<< imgs_ok <<"/"<< n_imgs<< "] " << ((float)imgs_ok/n_imgs)*100 << "% \nTiempo restante "<< (duration.count()/1000)/((float)imgs_ok/n_imgs) - duration.count()/1000 <<"s"<< endl;
     }
+
+    old_imgs.shrink_to_fit();
+    new_imgs.shrink_to_fit();
+
     cudaFree(d_new_images);
     cudaFree(d_old_images);
 }
@@ -155,9 +159,15 @@ int main(int argc, char const *argv[]){
     vector<vector<string>> imgs(cpu_threads);
     vector<vector<string>> names(cpu_threads);
     if (auto dir = opendir(path.c_str())) {
-        while (auto f = readdir(dir)) n_imgs++;
+        while (auto f = readdir(dir)){
+            if (!f->d_name || f->d_name[0] == '.') continue;
+            n_imgs++;
+        }
         closedir(dir);
     }
+    system("clear");
+    cout << "Total: "<< n_imgs << " imagenes a procesar..."<<endl;
+    // leer todos los archivos de una carpeta
     if (auto dir = opendir(path.c_str())) {
         start = std::chrono::system_clock::now();
         int actual_thread = 0;
@@ -182,7 +192,8 @@ int main(int argc, char const *argv[]){
         if(imgs.at(actual_thread).size() != 0 && imgs.at(actual_thread).size() != img_per_kernel) interpolate(&imgs.at(actual_thread), &names.at(actual_thread), scale, interpolation_mode, test);
         for (int i = 0; i < cpu_threads; i++) if(threads[i].joinable()) threads[i].join();
         std::chrono::duration<float,std::milli> duration = std::chrono::system_clock::now() - start;
-        cout << "tiempo total: "<< duration.count()/1000 <<"s"<< endl;
+        system("clear");
+        cout << n_imgs <<" imagenes procesadas en "<< duration.count()/1000 <<"s"<< endl;
         closedir(dir);
     }
     return 0;
