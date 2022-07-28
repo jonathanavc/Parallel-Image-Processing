@@ -5,6 +5,7 @@
 #include <dirent.h>
 #include <cuda_runtime.h>
 #include <thread>
+#include <semaphore.h>
 #include <atomic>
 #include <chrono>
 #include "CImg.h"
@@ -24,9 +25,8 @@ static int cpu_threads = 12;
 int n_imgs = 0;
 
 atomic<long long> imgs_ok(0);
-atomic<short> read_write_thread(0);
 
-std::chrono::_V2::system_clock::time_point start;
+chrono::_V2::system_clock::time_point start;
 
 __device__ int pixel(unsigned char *img, int x, int y, int width, int size, int rgb, int n_img, int spectrum){
     return img[n_img * size * spectrum + (x) + (y)*width + size * rgb];
@@ -70,23 +70,24 @@ __global__ void nearest_neighbor_interpolation(unsigned char *d_old_image, unsig
     }
 }
 
-void interpolate(vector<string> *paths, vector<string> *file_names, int scale, int interpolation_mode, int test){
+void interpolate(vector<string> *paths, vector<string> *file_names, int scale, int interpolation_mode, bool test){
     unsigned long long old_size = 0;
     unsigned long long new_size = 0;
     unsigned char *d_old_images;
     unsigned char *d_new_images;
     vector<CImg<unsigned char>> old_imgs;
     vector<CImg<unsigned char>> new_imgs;
+
     for (int i = 0; i < paths->size(); i++){
         old_imgs.push_back(CImg<unsigned char>(paths->at(i).c_str()));
-        old_size += old_imgs.at(i).size();
     }
+    old_size = old_imgs.at(0).size() * old_imgs.size();
 
     for (int i = 0; i < paths->size(); i++){
         if(interpolation_mode == 1) new_imgs.push_back(CImg<unsigned char>(old_imgs.at(i).width() * scale, old_imgs.at(i).height() * scale, 1, old_imgs.at(0).spectrum(), 255));
         if(interpolation_mode == 2) new_imgs.push_back(CImg<unsigned char>(old_imgs.at(i).width()* scale - (scale - 1), old_imgs.at(i).height() * scale - (scale - 1), 1, old_imgs.at(0).spectrum(), 255));
-        new_size += new_imgs.at(i).size();
     }
+    new_size = new_imgs.at(0).size() * new_imgs.size();
 
     cudaMalloc((void **)&d_old_images, old_size);
     cudaMalloc((void **)&d_new_images, new_size);
@@ -96,7 +97,6 @@ void interpolate(vector<string> *paths, vector<string> *file_names, int scale, i
     }
 
     dim3 blkDim (block_size, 1, 1);
-    //dim3 grdDim (((new_size + block_size - 1)/block_size + pixel_per_thread - 1)/pixel_per_thread, 1, 1);
     dim3 grdDim ((new_size + block_size + pixel_per_thread - 1)/(block_size * pixel_per_thread), 1, 1);
 
     if(interpolation_mode == 1) nearest_neighbor_interpolation<<<grdDim, blkDim>>>(d_old_images, d_new_images, old_imgs.at(0).width(), old_imgs.at(0).height(), new_imgs.at(0).width(), new_imgs.at(0).height(), pixel_per_thread, paths->size(), old_imgs.at(0).spectrum());
@@ -108,23 +108,24 @@ void interpolate(vector<string> *paths, vector<string> *file_names, int scale, i
         cudaMemcpy(new_imgs.at(i).data(), d_new_images + i * new_imgs.at(0).size(), new_imgs.at(i).size(), cudaMemcpyDeviceToHost);
     }
 
+    old_imgs.shrink_to_fit();
+    cudaFree(d_new_images);
+    cudaFree(d_old_images);
+
     if(!test){
         for (int i = 0; i < paths->size(); i++){
             string _ = "new_imgs/";
             _.append(file_names->at(i));
             new_imgs.at(i).save(_.c_str());
         }
-        system("clear");
-        imgs_ok += paths->size();
-        std::chrono::duration<float,std::milli> duration = std::chrono::system_clock::now() - start;
-        cout << "["<< imgs_ok <<"/"<< n_imgs<< "] " << ((float)imgs_ok/n_imgs)*100 << "% \nTiempo restante "<< (duration.count()/1000)/((float)imgs_ok/n_imgs) - duration.count()/1000 <<"s"<< endl;
     }
+    system("clear");
+    if(test) cout << "[TEST] ";
+    imgs_ok += paths->size();
+    std::chrono::duration<float,std::milli> duration = std::chrono::system_clock::now() - start;
+    cout << "["<< imgs_ok <<"/"<< n_imgs<< "] " << ((float)imgs_ok/n_imgs)*100 << "% \nTiempo restante "<< (duration.count()/1000)/((float)imgs_ok/n_imgs) - duration.count()/1000 <<"s"<< endl;
 
-    old_imgs.shrink_to_fit();
     new_imgs.shrink_to_fit();
-
-    cudaFree(d_new_images);
-    cudaFree(d_old_images);
 }
 
 int main(int argc, char const *argv[]){
@@ -133,6 +134,7 @@ int main(int argc, char const *argv[]){
     int scale = 0;
     thread threads[cpu_threads];
     string path;
+
     if (argc < 4){
         cout << "Modo de uso: " << argv[0] << " \"Nombre imagen\" \"tecnica(NNI/LI)\" \"factor de escalado(ej: int >= 1)\"" << endl;
         return 1;
@@ -150,7 +152,6 @@ int main(int argc, char const *argv[]){
     }
     if(argc > 4){
         if(strcmp(argv[4], "-t") == 0){
-            cout <<"------------------ Test -------------------" << endl;
             test = 1;
         }
     }
@@ -166,13 +167,12 @@ int main(int argc, char const *argv[]){
         closedir(dir);
     }
     system("clear");
-    cout << "Total: "<< n_imgs << " imagenes a procesar..."<<endl;
+    cout << "[TEST] Total: "<< n_imgs << " imagenes a procesar..."<<endl;
     // leer todos los archivos de una carpeta
     if (auto dir = opendir(path.c_str())) {
         start = std::chrono::system_clock::now();
         int actual_thread = 0;
         while (auto f = readdir(dir)) {
-            if(actual_thread == cpu_threads) actual_thread = 0;
             if(threads[actual_thread].joinable()){
                 threads[actual_thread].join();
                 vector<string>().swap(imgs.at(actual_thread));
@@ -188,6 +188,7 @@ int main(int argc, char const *argv[]){
                 threads[actual_thread] = thread(interpolate, &imgs.at(actual_thread), &names.at(actual_thread), scale, interpolation_mode, test);
                 actual_thread++;
             }
+            if(actual_thread == cpu_threads) actual_thread = 0;
         }
         if(imgs.at(actual_thread).size() != 0 && imgs.at(actual_thread).size() != img_per_kernel) interpolate(&imgs.at(actual_thread), &names.at(actual_thread), scale, interpolation_mode, test);
         for (int i = 0; i < cpu_threads; i++) if(threads[i].joinable()) threads[i].join();
