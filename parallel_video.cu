@@ -8,7 +8,6 @@
 #include <atomic>
 #include <chrono>
 #include "CImg.h"
-#include "./others/metrictime.hpp"
 
 using namespace cimg_library;
 using namespace std;
