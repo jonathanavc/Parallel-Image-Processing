@@ -5,7 +5,6 @@
 #include <dirent.h>
 #include <cuda_runtime.h>
 #include <thread>
-#include <semaphore.h>
 #include <atomic>
 #include <chrono>
 #include "CImg.h"
@@ -77,7 +76,7 @@ void interpolate(vector<string> *paths, vector<string> *file_names, int scale, i
     unsigned char *d_new_images;
     vector<CImg<unsigned char>> old_imgs;
     vector<CImg<unsigned char>> new_imgs;
-
+    
     for (int i = 0; i < paths->size(); i++){
         old_imgs.push_back(CImg<unsigned char>(paths->at(i).c_str()));
     }
@@ -96,6 +95,8 @@ void interpolate(vector<string> *paths, vector<string> *file_names, int scale, i
         cudaMemcpy(d_old_images + i * old_imgs.at(i).size(), old_imgs.at(i).data(), old_imgs.at(i).size(), cudaMemcpyHostToDevice);
     }
 
+    old_imgs.shrink_to_fit();
+
     dim3 blkDim (block_size, 1, 1);
     dim3 grdDim ((new_size + block_size + pixel_per_thread - 1)/(block_size * pixel_per_thread), 1, 1);
 
@@ -108,7 +109,6 @@ void interpolate(vector<string> *paths, vector<string> *file_names, int scale, i
         cudaMemcpy(new_imgs.at(i).data(), d_new_images + i * new_imgs.at(0).size(), new_imgs.at(i).size(), cudaMemcpyDeviceToHost);
     }
 
-    old_imgs.shrink_to_fit();
     cudaFree(d_new_images);
     cudaFree(d_old_images);
 
@@ -119,13 +119,12 @@ void interpolate(vector<string> *paths, vector<string> *file_names, int scale, i
             new_imgs.at(i).save(_.c_str());
         }
     }
+
     system("clear");
     if(test) cout << "[TEST] ";
     imgs_ok += paths->size();
     std::chrono::duration<float,std::milli> duration = std::chrono::system_clock::now() - start;
     cout << "["<< imgs_ok <<"/"<< n_imgs<< "] " << ((float)imgs_ok/n_imgs)*100 << "% \nTiempo restante "<< (duration.count()/1000)/((float)imgs_ok/n_imgs) - duration.count()/1000 <<"s"<< endl;
-
-    new_imgs.shrink_to_fit();
 }
 
 int main(int argc, char const *argv[]){
@@ -167,7 +166,8 @@ int main(int argc, char const *argv[]){
         closedir(dir);
     }
     system("clear");
-    cout << "[TEST] Total: "<< n_imgs << " imagenes a procesar..."<<endl;
+    if(test) cout << "[TEST] ";
+    cout << "Total: "<< n_imgs << " imagenes a procesar..."<<endl;
     // leer todos los archivos de una carpeta
     if (auto dir = opendir(path.c_str())) {
         start = std::chrono::system_clock::now();
