@@ -71,7 +71,7 @@ int main(int argc, char const *argv[]){
     string path;
 
     if (argc < 4){
-        cout << "Modo de uso: " << argv[0] << " \"Nombre carpeta\" \"tecnica(NNI/LI)\" \"factor de escalado(ej: int >= 1)\"" << endl;
+        cout << "Modo de uso: " << argv[0] << " \"Nombre carpeta\" \"tecnica(NNI/LI)\" \"factor de escalado(ej: int >= 1)\" \"-t\"(opcional, no se guardan los imagenes)" << endl;
         return 1;
     }
     if(strcmp(argv[2], "NNI") == 0) interpolation_mode = 1;
