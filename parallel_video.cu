@@ -1,11 +1,11 @@
 // nvcc parallel_video.cu -lX11
+// nvcc parallel_video.cu -std=c++11 -O3 -Dcimg_jpeg=1 -Dcimg_display=0
 
 #include <iostream>
 #include <vector>
 #include <dirent.h>
 #include <cuda_runtime.h>
 #include <thread>
-#include <atomic>
 #include <chrono>
 #include "CImg.h"
 
@@ -22,9 +22,11 @@ static int cpu_threads = 12;
 
 int n_imgs = 0;
 
-atomic<long long> imgs_ok(0);
+int imgs_ok = 0;
 
 chrono::_V2::system_clock::time_point start;
+
+
 
 __device__ int pixel(unsigned char *img, int x, int y, int width, int size, int rgb, int n_img, int spectrum){
     return img[n_img * size * spectrum + (x) + (y)*width + size * rgb];
@@ -68,7 +70,9 @@ __global__ void nearest_neighbor_interpolation(unsigned char *d_old_image, unsig
     }
 }
 
-void interpolate(vector<string> *paths, vector<string> *file_names, int scale, int interpolation_mode, bool test){
+void interpolate(vector<string> paths, vector<string> file_names, int scale, int interpolation_mode, bool test){
+    cudaStream_t s_1;
+    cudaStreamCreate(&s_1);
     unsigned long long old_size = 0;
     unsigned long long new_size = 0;
     unsigned char *d_old_images;
@@ -76,12 +80,12 @@ void interpolate(vector<string> *paths, vector<string> *file_names, int scale, i
     vector<CImg<unsigned char>> old_imgs;
     vector<CImg<unsigned char>> new_imgs;
     
-    for (int i = 0; i < paths->size(); i++){
-        old_imgs.push_back(CImg<unsigned char>(paths->at(i).c_str()));
+    for (int i = 0; i < paths.size(); i++){
+        old_imgs.push_back(CImg<unsigned char>(paths.at(i).c_str()));
     }
     old_size = old_imgs.at(0).size() * old_imgs.size();
 
-    for (int i = 0; i < paths->size(); i++){
+    for (int i = 0; i < paths.size(); i++){
         if(interpolation_mode == 1) new_imgs.push_back(CImg<unsigned char>(old_imgs.at(i).width() * scale, old_imgs.at(i).height() * scale, 1, old_imgs.at(0).spectrum(), 255));
         if(interpolation_mode == 2) new_imgs.push_back(CImg<unsigned char>(old_imgs.at(i).width()* scale - (scale - 1), old_imgs.at(i).height() * scale - (scale - 1), 1, old_imgs.at(0).spectrum(), 255));
     }
@@ -90,40 +94,34 @@ void interpolate(vector<string> *paths, vector<string> *file_names, int scale, i
     cudaMalloc((void **)&d_old_images, old_size);
     cudaMalloc((void **)&d_new_images, new_size);
     
-    for (int i = 0; i < paths->size(); i++){
-        cudaMemcpy(d_old_images + i * old_imgs.at(i).size(), old_imgs.at(i).data(), old_imgs.at(i).size(), cudaMemcpyHostToDevice);
+    for (int i = 0; i < paths.size(); i++){
+        cudaMemcpyAsync(d_old_images + i * old_imgs.at(i).size(), old_imgs.at(i).data(), old_imgs.at(i).size(), cudaMemcpyHostToDevice, s_1);
     }
-
-    old_imgs.shrink_to_fit();
 
     dim3 blkDim (block_size, 1, 1);
     dim3 grdDim ((new_size + block_size + pixel_per_thread - 1)/(block_size * pixel_per_thread), 1, 1);
 
-    if(interpolation_mode == 1) nearest_neighbor_interpolation<<<grdDim, blkDim>>>(d_old_images, d_new_images, old_imgs.at(0).width(), old_imgs.at(0).height(), new_imgs.at(0).width(), new_imgs.at(0).height(), pixel_per_thread, paths->size(), old_imgs.at(0).spectrum());
-    if(interpolation_mode == 2) linear_interpolation<<<grdDim, blkDim>>>(d_old_images, d_new_images, old_imgs.at(0).width(), old_imgs.at(0).height(), new_imgs.at(0).width(), new_imgs.at(0).height(), scale, pixel_per_thread, paths->size(), old_imgs.at(0).spectrum());
+    if(interpolation_mode == 1) nearest_neighbor_interpolation<<<grdDim, blkDim, 0, s_1>>>(d_old_images, d_new_images, old_imgs.at(0).width(), old_imgs.at(0).height(), new_imgs.at(0).width(), new_imgs.at(0).height(), pixel_per_thread, paths.size(), old_imgs.at(0).spectrum());
+    if(interpolation_mode == 2) linear_interpolation<<<grdDim, blkDim, 0, s_1>>>(d_old_images, d_new_images, old_imgs.at(0).width(), old_imgs.at(0).height(), new_imgs.at(0).width(), new_imgs.at(0).height(), scale, pixel_per_thread, paths.size(), old_imgs.at(0).spectrum());
 
     cudaDeviceSynchronize();
     
-    for (int i = 0; i < paths->size(); i++){
-        cudaMemcpy(new_imgs.at(i).data(), d_new_images + i * new_imgs.at(0).size(), new_imgs.at(i).size(), cudaMemcpyDeviceToHost);
+    for (int i = 0; i < paths.size(); i++){
+        cudaMemcpyAsync(new_imgs.at(i).data(), d_new_images + i * new_imgs.at(0).size(), new_imgs.at(i).size(), cudaMemcpyDeviceToHost, s_1);
     }
-
-    cudaFree(d_new_images);
+    
     cudaFree(d_old_images);
 
     if(!test){
-        for (int i = 0; i < paths->size(); i++){
+        for (int i = 0; i < paths.size(); i++){
             string _ = "new_imgs/";
-            _.append(file_names->at(i));
+            _.append(file_names.at(i));
             new_imgs.at(i).save(_.c_str());
         }
     }
 
-    system("clear");
-    if(test) cout << "[TEST] ";
-    imgs_ok += paths->size();
-    std::chrono::duration<float,std::milli> duration = std::chrono::system_clock::now() - start;
-    cout << "["<< imgs_ok <<"/"<< n_imgs<< "] " << ((float)imgs_ok/n_imgs)*100 << "% \nTiempo restante "<< (duration.count()/1000)/((float)imgs_ok/n_imgs) - duration.count()/1000 <<"s"<< endl;
+    cudaFree(d_new_images);
+    cudaStreamDestroy(s_1);
 }
 
 int main(int argc, char const *argv[]){
@@ -169,29 +167,38 @@ int main(int argc, char const *argv[]){
     cout << "Total: "<< n_imgs << " imagenes a procesar..."<<endl;
     // leer todos los archivos de una carpeta
     if (auto dir = opendir(path.c_str())) {
-        start = std::chrono::system_clock::now();
+        start = chrono::system_clock::now();
         int actual_thread = 0;
         while (auto f = readdir(dir)) {
             if(threads[actual_thread].joinable()){
-                threads[actual_thread].join();
-                vector<string>().swap(imgs.at(actual_thread));
-                vector<string>().swap(names.at(actual_thread));
+                for (int i = 0; i < cpu_threads; i++){
+                    threads[i].join();
+                    vector<string>().swap(imgs.at(i));
+                    vector<string>().swap(names.at(i));
+                }
+                system("clear");
+                if(test) cout << "[TEST] ";
+                imgs_ok += cpu_threads * img_per_kernel;
+                chrono::duration<float,milli> duration = chrono::system_clock::now() - start;
+                cout << "["<< imgs_ok <<"/"<< n_imgs<< "] " << ((float)imgs_ok/n_imgs)*100 << "% \nTiempo restante "<< (duration.count()/1000)/((float)imgs_ok/n_imgs) - duration.count()/1000 <<"s"<< endl;                 
             }
+            
             if (!f->d_name || f->d_name[0] == '.') continue; // Skip everything that starts with a dot
             string _ = argv[1];
             if(_.at(_.length() - 1) != '/') _.append("/");
             _.append(f->d_name);
+
             imgs.at(actual_thread).push_back(_);
             names.at(actual_thread).push_back(f->d_name);
             if(imgs.at(actual_thread).size() == img_per_kernel){
-                threads[actual_thread] = thread(interpolate, &imgs.at(actual_thread), &names.at(actual_thread), scale, interpolation_mode, test);
+                threads[actual_thread] = thread(interpolate, imgs.at(actual_thread), names.at(actual_thread), scale, interpolation_mode, test);
                 actual_thread++;
+                if(actual_thread == cpu_threads) actual_thread = 0;
             }
-            if(actual_thread == cpu_threads) actual_thread = 0;
         }
-        if(imgs.at(actual_thread).size() != 0 && imgs.at(actual_thread).size() != img_per_kernel) interpolate(&imgs.at(actual_thread), &names.at(actual_thread), scale, interpolation_mode, test);
         for (int i = 0; i < cpu_threads; i++) if(threads[i].joinable()) threads[i].join();
-        std::chrono::duration<float,std::milli> duration = std::chrono::system_clock::now() - start;
+        if(imgs.at(actual_thread).size() != 0 && imgs.at(actual_thread).size() != img_per_kernel) interpolate(imgs.at(actual_thread), names.at(actual_thread), scale, interpolation_mode, test);
+        chrono::duration<float,milli> duration = chrono::system_clock::now() - start;
         system("clear");
         cout << n_imgs <<" imagenes procesadas en "<< duration.count()/1000 <<"s"<< endl;
         closedir(dir);
